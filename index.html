@@ -1,0 +1,358 @@
+<html>
+  <head>
+    <title>Street View split-map-panes</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB41DRUbKWJHPxaFjMAwdrzWzbVKartNGg&callback=initialize&v=weekly" defer ></script>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
+      main {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-rows: 1fr 40%;
+        grid-template-columns: 1fr;
+      }
+
+      iframe {
+        border: none;
+        width: 100%;
+        height: 100%;
+      }
+
+      #street-views {
+        display: grid;
+        grid-template-rows: 1fr;
+        grid-template-columns: 1fr 1fr 1fr;
+      }
+      #one {
+        grid-row: 1;
+        background: white;
+      }
+      #one-view {
+        float: left;
+        height: 100%;
+        width: 100%;
+      }
+
+      #two {
+        grid-column: 2;
+        background: white;
+      }
+      #three {
+        grid-column: 3;
+        background: white;
+      }
+
+      .view {
+        float: left;
+        height: 100%;
+        width: 100%;
+      }
+
+      .answer {
+        position: absolute;
+        height: 50px;
+        width: 33.33%;
+        z-index: 100;
+        background: #ccc;
+        mix-blend-mode: multiply;
+      }
+      .answer:hover {
+        background: #999;
+        cursor: pointer;
+      }
+      .answer.correct {
+        background: green;
+      }
+      /* Hide street view zoom controls */
+      .gm-control-active {
+        display: none !important;
+      }
+      .gmnoprint {
+        display: none !important;
+      }
+      .gm-style-cc {
+        display: none !important;
+      }
+    </style>
+    <script type="module">
+      import { Felt } from "https://esm.sh/@feltmaps/js-sdk@1.5.0-next.14"
+
+      const felt = await Felt.embed(
+        document.querySelector("iframe"),
+        "PG8WB9C32SMaKBclzw3DZOB",
+        {
+          uiControls: {
+            cooperativeGestures: false,
+            showLegend: false,
+            fullScreenButton: false,
+            scaleBar: false,
+          },
+        },
+      )
+
+      const west = -180
+      const south = -50
+      const east = 180
+      const north = 75
+      felt.fitViewportToBounds({ bounds: [west, south, east, north] })
+
+      window.correctAnswer = null
+      window.correctGuesses = 0
+
+      function win() {
+        if (window.correctGuesses == 3) {
+          console.log("WINNN")
+        }
+      }
+
+      document.getElementById("one-answer").addEventListener("click", (ev) => {
+        if (window.correctAnswer == "one") {
+          ev.target.className += " correct"
+          window.correctGuesses++
+          win()
+        }
+      })
+      document.getElementById("two-answer").addEventListener("click", (ev) => {
+        if (window.correctAnswer == "two") {
+          ev.target.className += " correct"
+          window.correctGuesses++
+          win()
+        }
+      })
+      document.getElementById("three-answer").addEventListener("click", (ev) => {
+        if (window.correctAnswer == "three") {
+          ev.target.className += " correct"
+          window.correctGuesses++
+          win()
+        }
+      })
+
+      const unsubscribe = felt.onSelectionChange({
+        handler: ({ selection }) => {
+          selection.forEach((sel) => {
+            if (sel.entity.attributes["correct"]) {
+              felt.updateElement({
+                id: sel.entity.id,
+                symbol: "diamond",
+              })
+              console.log("id", sel.entity.id)
+              window.correctAnswer = sel.entity.attributes["correct"]
+            }
+          })
+        },
+      })
+
+      const streetViewService = new google.maps.StreetViewService()
+      const searchRadius = 10000 // Radius in meters to search for Street View
+      const maxAttempts = 50
+
+      function getRandomPointWeightedByStreetView() {
+        const coverageRegions = [
+          {
+            name: "North America",
+            weight: 0.28,
+            bounds: { south: 15, west: -140, north: 60, east: -50 },
+          },
+          {
+            name: "Western Europe",
+            weight: 0.28,
+            bounds: { south: 35, west: -10, north: 60, east: 20 },
+          },
+          {
+            name: "Japan/Korea",
+            weight: 0.12,
+            bounds: { south: 30, west: 125, north: 45, east: 145 },
+          },
+          {
+            name: "Australia/NZ",
+            weight: 0.12,
+            bounds: { south: -50, west: 110, north: -10, east: 180 },
+          },
+          {
+            name: "South America",
+            weight: 0.1,
+            bounds: { south: -50, west: -80, north: 15, east: -35 },
+          },
+          {
+            name: "Southeast Asia",
+            weight: 0.05,
+            bounds: { south: 0, west: 95, north: 25, east: 120 },
+          },
+          {
+            name: "Africa",
+            weight: 0.05,
+            bounds: { south: -35, west: -20, north: 35, east: 50 },
+          },
+        ]
+
+        // 90% of the time use weighted regions, 10% completely random global point
+        if (Math.random() < 0.9) {
+          const totalWeight = coverageRegions.reduce(
+            (sum, region) => sum + region.weight,
+            0,
+          )
+          let random = Math.random() * totalWeight
+
+          let selectedRegion = coverageRegions[0]
+          for (let i = 0; i < coverageRegions.length; i++) {
+            random -= coverageRegions[i].weight
+            if (random <= 0) {
+              selectedRegion = coverageRegions[i]
+              break
+            }
+          }
+
+          const bounds = selectedRegion.bounds
+          return {
+            lat: bounds.south + Math.random() * (bounds.north - bounds.south),
+            lng: bounds.west + Math.random() * (bounds.east - bounds.west),
+          }
+        } else {
+          // Get a completely random point on Earth
+          return {
+            lat: Math.random() * 180 - 90, // -90 to 90
+            lng: Math.random() * 360 - 180, // -180 to 180
+          }
+        }
+      }
+
+      function findRandomStreetViewLocation() {
+        return new Promise((resolve, reject) => {
+          let attempts = 0
+
+          tryRandomLocation()
+
+          function tryRandomLocation() {
+            attempts++
+
+            if (attempts > maxAttempts) {
+              console.error("Failed to find random Street View after " + maxAttempts)
+              reject(new Error("Maximum attempts exceeded"))
+              return
+            }
+
+            const randomPoint = getRandomPointWeightedByStreetView()
+
+            streetViewService.getPanorama(
+              {
+                location: randomPoint,
+                radius: searchRadius,
+                source: google.maps.StreetViewSource.OUTDOOR,
+              },
+              (data, status) => {
+                if (status === google.maps.StreetViewStatus.OK) {
+                  console.log("Found location in ", attempts)
+                  const location = data.location.latLng
+                  resolve({
+                    lat: location.lat(),
+                    lng: location.lng(),
+                    pano: data.location.pano,
+                    heading: Math.floor(Math.random() * 360),
+                    pitch: 0,
+                  })
+                } else {
+                  tryRandomLocation()
+                }
+              },
+            )
+          }
+        })
+      }
+
+      findRandomStreetViewLocation()
+        .then((location) => {
+          felt.createElement({
+            type: "Place",
+            coordinates: [location.lng, location.lat],
+            interaction: "locked",
+            symbol: "star",
+            color: "#333",
+            attributes: { correct: "one" },
+          })
+
+          new google.maps.StreetViewPanorama(document.getElementById("one-view"), {
+            position: { lat: location.lat, lng: location.lng },
+            pov: { heading: location.heading, pitch: location.pitch },
+            zoom: 1,
+            disableDefaultUI: true,
+            streetViewControl: false,
+          })
+        })
+        .catch((error) => {
+          console.error("Error finding random Street View:", error)
+        })
+
+      findRandomStreetViewLocation()
+        .then((location) => {
+          felt.createElement({
+            type: "Place",
+            coordinates: [location.lng, location.lat],
+            interaction: "locked",
+            symbol: "star",
+            color: "#333",
+            attributes: { correct: "two" },
+          })
+
+          new google.maps.StreetViewPanorama(document.getElementById("two-view"), {
+            position: { lat: location.lat, lng: location.lng },
+            pov: { heading: location.heading, pitch: location.pitch },
+            zoom: 1,
+            disableDefaultUI: true,
+            streetViewControl: false,
+          })
+        })
+        .catch((error) => {
+          console.error("Error finding random Street View:", error)
+        })
+
+      findRandomStreetViewLocation()
+        .then((location) => {
+          felt.createElement({
+            type: "Place",
+            coordinates: [location.lng, location.lat],
+            interaction: "locked",
+            symbol: "star",
+            color: "#333",
+            attributes: { correct: "three" },
+          })
+
+          new google.maps.StreetViewPanorama(document.getElementById("three-view"), {
+            position: { lat: location.lat, lng: location.lng },
+            pov: { heading: location.heading, pitch: location.pitch },
+            zoom: 1,
+            disableDefaultUI: true,
+            streetViewControl: false,
+            zoomControl: false,
+          })
+        })
+        .catch((error) => {
+          console.error("Error finding random Street View:", error)
+        })
+
+    </script>
+  </head>
+  <body>
+    <main>
+      <iframe src="https://felt.com/embed/map/Geomatcher-PG8WB9C32SMaKBclzw3DZOB" ></iframe>
+      <div id="street-views">
+        <div id="one">
+          <div id="one-view" class="view"></div>
+          <div id="one-answer" class="answer"></div>
+        </div>
+        <div id="two">
+          <div id="two-view" class="view"></div>
+          <div id="two-answer" class="answer"></div>
+        </div>
+        <div id="three">
+          <div id="three-view" class="view"></div>
+          <div id="three-answer" class="answer"></div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
